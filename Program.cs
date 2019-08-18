@@ -1,7 +1,10 @@
-﻿using System;
+﻿using Colorful;
+using System;
+using System.Drawing;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Console = Colorful.Console;
 
 namespace VRCLog
 {
@@ -10,44 +13,41 @@ namespace VRCLog
         private static string LogPath;
         private static string LogFile = null;
 
-        private const ConsoleColor DefaultColor = ConsoleColor.DarkGreen;
-        private const ConsoleColor PlayerColor = ConsoleColor.Yellow;
-        private const ConsoleColor PlayerJoinedColor = ConsoleColor.Green;
-        private const ConsoleColor PlayerLeftColor = ConsoleColor.Red;
-        private const ConsoleColor LinkColor = ConsoleColor.Blue;
-        private const ConsoleColor ActionColor = ConsoleColor.Cyan;
+        private static Color LogColorDefault = Color.DarkGreen;
+        private static Color LogColorPlayer = Color.Yellow;
+        private static Color LogColorPlayerJoined = Color.FromArgb(0, 255, 0);
+        private static Color LogColorPlayerLeft = Color.Red;
+        private static Color LogColorLink = Color.Blue;
+        private static Color LogColorAction = Color.Cyan;
 
         static void Main(string[] args)
         {
-            Console.ForegroundColor = ConsoleColor.DarkGreen;
-            Console.WriteLine(Resources.Logo);
+            Console.CancelKeyPress += Console_CancelKeyPress;               // настраиваем событие для закрытия консоли
 
+            Console.WriteLine(Resources.Logo, LogColorDefault);             // выводим лого
             
-
-            Console.CancelKeyPress += Console_CancelKeyPress;
-
-            try
+            try                                                             // читаем конфиг
             {
                 var cfg = new Config();
                 LogPath = cfg.GetParameter("path");
             }
-            catch (Exception e)
+            catch (Exception e)                                             // при ошибке - выводим текст ошибки и выходим
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e.Message, LogColorDefault);
                 Console.ReadKey();
                 Environment.Exit(0);
             }
 
-            if (LogPath == "")
+            if (LogPath == "")                                              // проверяем настройки, выходим при ошибке
             {
-                Console.WriteLine("Параметр path не найден в файле config.cfg");
+                Console.WriteLine("Параметр path не найден в файле config.cfg", LogColorDefault);
                 Console.ReadKey();
                 Environment.Exit(0);
             }
 
-            Console.WriteLine("Путь к папке логов: " + LogPath);
+            Console.WriteLine("Путь к папке логов: " + LogPath, LogColorDefault);
 
-            using (FileSystemWatcher watcher = new FileSystemWatcher())
+            using (FileSystemWatcher watcher = new FileSystemWatcher())     // запускаем watcher для отслеживания изменений в директории
             {
                 watcher.Path = LogPath;
                 watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size;
@@ -56,13 +56,13 @@ namespace VRCLog
                 watcher.Changed += OnChanged;
                 watcher.EnableRaisingEvents = true;
 
-                Console.Write("Ожидание нового файла лога... ");
+                Console.Write("Ожидание нового файла лога... ", LogColorDefault);
 
-                while (LogFile is null)
+                while (LogFile is null)                                     // ждем пока появится новый файл лога
                 {
                     var files = Directory.GetFiles(LogPath);
 
-                    foreach (var file in files)
+                    foreach (var file in files)                             // пока ждем юзаем костыль для правильной работы watcher
                     {
                         using (FileStream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                         {
@@ -74,8 +74,8 @@ namespace VRCLog
                 }
             }
 
-            Console.WriteLine(LogFile);
-
+            Console.WriteLine(LogFile, LogColorDefault);
+                                                                            // файл найден, открываем поток и читаем все что можно
             var fs = new FileStream(LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using (var sr = new StreamReader(fs))
             {
@@ -84,7 +84,7 @@ namespace VRCLog
                 while (true)
                 {
                     line = sr.ReadLine();
-                    if (line != null)
+                    if (line != null)                                       // ищем кусочки текста, затем передаем строку на разборку
                     {
                         if (line.Contains("[NetworkManager] OnPlayerJoined ")) PrintPlayerJoin(line);
                         if (line.Contains("[NetworkManager] OnPlayerLeft ")) PrintPlayerLeft(line);
@@ -101,24 +101,27 @@ namespace VRCLog
                     }
                     else
                     {
-                        Thread.Sleep(1);
+                        Thread.Sleep(1);                                    // обязательная задержка, иначе получим 100 % загрузку ядра
                     }
                 }
             }
         }
 
+        #region LogPriners
+
         private static void PrintPlayerJoin(string line)
         {
             var rxp = new Regex("(.+) Log .+ OnPlayerJoined (.+)");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor;         Console.Write(date + " [Player] ");
-            Console.ForegroundColor = PlayerJoinedColor;    Console.Write("Join ");
-            Console.ForegroundColor = PlayerColor;          Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),
+                new Formatter("Join", LogColorPlayerJoined),
+                new Formatter(result.Groups[2], LogColorPlayer)
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Player] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintPlayerLeft(string line)
@@ -128,11 +131,14 @@ namespace VRCLog
             var date = result.Groups[1];
             var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Player] ");
-            Console.ForegroundColor = PlayerLeftColor; Console.Write("Left ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),
+                new Formatter("Left", LogColorPlayerLeft),
+                new Formatter(result.Groups[2], LogColorPlayer)
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Player] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintRoomJoining(string line)
@@ -142,10 +148,13 @@ namespace VRCLog
             var date = result.Groups[1];
             var roomid = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Room] Joining: ");
-            Console.ForegroundColor = LinkColor; Console.WriteLine(roomid);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),
+                new Formatter(result.Groups[2], LogColorLink)
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Room] Joining: {1}", LogColorDefault, parts);
         }
 
         private static void PrintRoomEntering(string line)
@@ -155,109 +164,124 @@ namespace VRCLog
             var date = result.Groups[1];
             var name = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.WriteLine(date + " [Room] Entering: " + name);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),
+                new Formatter(result.Groups[2], LogColorLink)
+            };
+
+            Console.WriteLineFormatted("{0} [Room] Entering: {1}", LogColorDefault, parts);
         }
 
         private static void PrintVoteToKickInitiation(string line)
         {
             var rxp = new Regex(@"(.+) Log .+userToKickId=(.+),.+VRCPlayer\S+ (.+) .+Id=(.+) target.+");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var playerToKickId = result.Groups[2];
-            var playerInitName = result.Groups[3];
-            var playerInitId = result.Groups[4];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Moderation] ");
-            Console.ForegroundColor = ConsoleColor.Red; Console.Write("VoteToKick ");
-            Console.ForegroundColor = PlayerColor; Console.Write(playerInitName + " ");
-            Console.ForegroundColor = LinkColor; Console.Write(playerInitId);
-            Console.ForegroundColor = DefaultColor; Console.Write(" -> ");
-            Console.ForegroundColor = LinkColor; Console.WriteLine(playerToKickId);
-            Console.ForegroundColor = DefaultColor;
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("VoteToKick", Color.Red),
+                new Formatter(result.Groups[3], LogColorPlayer),           //playerInitName
+                new Formatter(result.Groups[4], LogColorLink),             //playerInitId
+                new Formatter(result.Groups[2], LogColorLink)              //playerToKickId
+            };
+
+            Console.WriteLineFormatted("{0} [Moderation] {1} {2} [{3} -> {4}]", LogColorDefault, parts);
         }
 
         private static void PrintVideo(string line)
         {
             var rxp = new Regex(@"(.+) Log .+\[AVProVideo\] Opening (.+)\s\(.+");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var link = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Video] Loading: ");
-            Console.ForegroundColor = LinkColor; Console.WriteLine(link);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),        //date
+                new Formatter(result.Groups[2], LogColorLink)            //link
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Video] Loading: {1}", LogColorDefault, parts);
         }
 
         private static void PrintVoteToKick(string line)
         {
             var rxp = new Regex("(.+) Log .+ReceiveVoteToKickInitiation on ModerationManager for (.+)");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Moderation] ");
-            Console.ForegroundColor = ActionColor; Console.Write("VoteToKick ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("VoteToKick", Color.Red),
+                new Formatter(result.Groups[2], LogColorPlayer)            //player
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Moderation] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintMute(string line)
         {
             var rxp = new Regex("(.+) Log .+MuteChangeRPC on ModerationManager for (.+)");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Moderation] ");
-            Console.ForegroundColor = ActionColor; Console.Write("Mute ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("Mute", LogColorAction),
+                new Formatter(result.Groups[2], LogColorPlayer)            //player
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Moderation] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintBlock(string line)
         {
             var rxp = new Regex("(.+) Log .+BlockStateChangeRPC on ModerationManager for (.+)");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Moderation] ");
-            Console.ForegroundColor = ActionColor; Console.Write("Block ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("Block", LogColorAction),
+                new Formatter(result.Groups[2], LogColorPlayer)            //player
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Moderation] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintPortal(string line)
         {
             var rxp = new Regex(@"(.+) Log .+ConfigurePortal on Portals.+VRCPlayer\[Remote\] (\S+)\s.+");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Action] ");
-            Console.ForegroundColor = ActionColor; Console.Write("Create portal ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("Create portal", LogColorAction),
+                new Formatter(result.Groups[2], LogColorPlayer)            //player
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Action] {1} {2}", LogColorDefault, parts);
         }
 
         private static void PrintEmote(string line)
         {
             var rxp = new Regex(@"(.+) Log .+PlayEmoteRPC on VRCPlayer\[Remote\]\s(\S+).+");
             var result = rxp.Match(line);
-            var date = result.Groups[1];
-            var player = result.Groups[2];
 
-            Console.ForegroundColor = DefaultColor; Console.Write(date + " [Action] ");
-            Console.ForegroundColor = ActionColor; Console.Write("Emote ");
-            Console.ForegroundColor = PlayerColor; Console.WriteLine(player);
+            var parts = new Formatter[]
+            {
+                new Formatter(result.Groups[1], LogColorDefault),          //date
+                new Formatter("Emote", LogColorAction),
+                new Formatter(result.Groups[2], LogColorPlayer)            //player
+            };
 
-            Console.ForegroundColor = DefaultColor;
+            Console.WriteLineFormatted("{0} [Action] {1} {2}", LogColorDefault, parts);
         }
+
+        #endregion
+
+        #region Events
 
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
@@ -279,5 +303,7 @@ namespace VRCLog
         {
             Environment.Exit(0);
         }
+
+        #endregion
     }
 }
